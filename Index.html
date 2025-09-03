@@ -1,0 +1,351 @@
+import pygame
+import random
+import math
+from enum import Enum
+
+# Initialize pygame
+pygame.init()
+
+# Game constants
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 700
+CARD_WIDTH = 80
+CARD_HEIGHT = 120
+CARD_SPACING = 20
+FPS = 60
+
+# Colors
+BACKGROUND = (40, 100, 40)
+CARD_COLOR = (220, 220, 220)
+CARD_HIGHLIGHT = (255, 255, 100)
+TEXT_COLOR = (20, 20, 20)
+PLAYER1_COLOR = (50, 100, 200)
+PLAYER2_COLOR = (200, 50, 50)
+BUTTON_COLOR = (70, 70, 70)
+BUTTON_HOVER = (100, 100, 100)
+
+# Card suits and values
+class Suit(Enum):
+    CIRCLE = 1
+    BAMBOO = 2
+    CHARACTER = 3
+    WIND = 4
+    DRAGON = 5
+
+class Card:
+    def __init__(self, suit, value):
+        self.suit = suit
+        self.value = value
+        self.selected = False
+        self.rect = pygame.Rect(0, 0, CARD_WIDTH, CARD_HEIGHT)
+        
+    def draw(self, surface, x, y):
+        self.rect.x = x
+        self.rect.y = y
+        
+        # Draw card background
+        color = CARD_HIGHLIGHT if self.selected else CARD_COLOR
+        pygame.draw.rect(surface, color, self.rect, 0, 10)
+        pygame.draw.rect(surface, (0, 0, 0), self.rect, 2, 10)
+        
+        # Draw card content
+        font = pygame.font.SysFont(None, 30)
+        suit_names = {
+            Suit.CIRCLE: "Circle",
+            Suit.BAMBOO: "Bamboo",
+            Suit.CHARACTER: "Character",
+            Suit.WIND: "Wind",
+            Suit.DRAGON: "Dragon"
+        }
+        
+        # Display suit and value
+        text = f"{suit_names[self.suit]}\n{self.value}"
+        text_surface = font.render(text, True, TEXT_COLOR)
+        text_rect = text_surface.get_rect(center=self.rect.center)
+        surface.blit(text_surface, text_rect)
+
+class Button:
+    def __init__(self, x, y, width, height, text):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.hovered = False
+        
+    def draw(self, surface):
+        color = BUTTON_HOVER if self.hovered else BUTTON_COLOR
+        pygame.draw.rect(surface, color, self.rect, 0, 5)
+        pygame.draw.rect(surface, (255, 255, 255), self.rect, 2, 5)
+        
+        font = pygame.font.SysFont(None, 28)
+        text_surface = font.render(self.text, True, (255, 255, 255))
+        text_rect = text_surface.get_rect(center=self.rect.center)
+        surface.blit(text_surface, text_rect)
+        
+    def check_hover(self, pos):
+        self.hovered = self.rect.collidepoint(pos)
+        return self.hovered
+        
+    def check_click(self, pos, event):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            return self.rect.collidepoint(pos)
+        return False
+
+class VitaMohyongGame:
+    def __init__(self):
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("Vita Mohyong - Local Multiplayer")
+        self.clock = pygame.time.Clock()
+        self.font = pygame.font.SysFont(None, 36)
+        self.small_font = pygame.font.SysFont(None, 24)
+        
+        # Create buttons
+        self.draw_button = Button(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 80, 130, 50, "Draw Tile")
+        self.discard_button = Button(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 150, 130, 50, "Discard")
+        
+        # Game state
+        self.current_player = 1
+        self.game_over = False
+        self.winner = None
+        self.message = "Player 1's Turn"
+        
+        # Initialize game elements
+        self.initialize_game()
+        
+    def initialize_game(self):
+        # Create and shuffle tiles
+        self.tiles = []
+        
+        # Add Circle, Bamboo, and Character tiles (1-9, 4 of each)
+        for suit in [Suit.CIRCLE, Suit.BAMBOO, Suit.CHARACTER]:
+            for value in range(1, 10):
+                for _ in range(4):
+                    self.tiles.append(Card(suit, value))
+        
+        # Add Wind tiles (East, South, West, North, 4 of each)
+        for value in range(1, 5):
+            for _ in range(4):
+                self.tiles.append(Card(Suit.WIND, value))
+        
+        # Add Dragon tiles (Red, Green, White, 4 of each)
+        for value in range(1, 4):
+            for _ in range(4):
+                self.tiles.append(Card(Suit.DRAGON, value))
+                
+        random.shuffle(self.tiles)
+        
+        # Initialize player hands
+        self.player1_hand = []
+        self.player2_hand = []
+        
+        # Deal initial tiles (13 each)
+        for _ in range(13):
+            self.player1_hand.append(self.tiles.pop())
+            self.player2_hand.append(self.tiles.pop())
+            
+        # Sort hands
+        self.sort_hand(self.player1_hand)
+        self.sort_hand(self.player2_hand)
+        
+        # Discard piles
+        self.player1_discards = []
+        self.player2_discards = []
+        
+        # Current selection
+        self.selected_tile = None
+        
+    def sort_hand(self, hand):
+        hand.sort(key=lambda card: (card.suit.value, card.value))
+        
+    def draw_tile(self, player):
+        if self.tiles and not self.game_over:
+            tile = self.tiles.pop()
+            if player == 1:
+                self.player1_hand.append(tile)
+                self.sort_hand(self.player1_hand)
+            else:
+                self.player2_hand.append(tile)
+                self.sort_hand(self.player2_hand)
+            return True
+        return False
+        
+    def discard_tile(self, player, tile_idx):
+        if not self.game_over:
+            if player == 1 and tile_idx < len(self.player1_hand):
+                tile = self.player1_hand.pop(tile_idx)
+                self.player1_discards.append(tile)
+                self.current_player = 2
+                self.message = "Player 2's Turn"
+                return True
+            elif player == 2 and tile_idx < len(self.player2_hand):
+                tile = self.player2_hand.pop(tile_idx)
+                self.player2_discards.append(tile)
+                self.current_player = 1
+                self.message = "Player 1's Turn"
+                return True
+        return False
+        
+    def check_win(self, player):
+        # Simplified win condition - just check if player has 14 tiles and a pair
+        hand = self.player1_hand if player == 1 else self.player2_hand
+        if len(hand) == 14:
+            # Check for a pair
+            value_count = {}
+            for card in hand:
+                key = (card.suit, card.value)
+                value_count[key] = value_count.get(key, 0) + 1
+                
+            pairs = [count for count in value_count.values() if count >= 2]
+            if pairs:
+                self.game_over = True
+                self.winner = player
+                self.message = f"Player {player} wins!"
+                return True
+        return False
+        
+    def handle_events(self):
+        mouse_pos = pygame.mouse.get_pos()
+        self.draw_button.check_hover(mouse_pos)
+        self.discard_button.check_hover(mouse_pos)
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+                
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                # Check button clicks
+                if self.draw_button.check_click(mouse_pos, event):
+                    if self.current_player == 1:
+                        self.draw_tile(1)
+                        self.check_win(1)
+                    else:
+                        self.draw_tile(2)
+                        self.check_win(2)
+                        
+                elif self.discard_button.check_click(mouse_pos, event) and self.selected_tile is not None:
+                    if self.current_player == 1:
+                        self.discard_tile(1, self.selected_tile)
+                    else:
+                        self.discard_tile(2, self.selected_tile)
+                    self.selected_tile = None
+                
+                # Check tile selection
+                if self.current_player == 1:
+                    for i, tile in enumerate(self.player1_hand):
+                        if tile.rect.collidepoint(mouse_pos):
+                            self.selected_tile = i
+                            for j, t in enumerate(self.player1_hand):
+                                t.selected = (j == i)
+                            break
+                else:
+                    for i, tile in enumerate(self.player2_hand):
+                        if tile.rect.collidepoint(mouse_pos):
+                            self.selected_tile = i
+                            for j, t in enumerate(self.player2_hand):
+                                t.selected = (j == i)
+                            break
+                
+            # Keyboard controls for testing
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_1:
+                    self.current_player = 1
+                    self.message = "Player 1's Turn"
+                elif event.key == pygame.K_2:
+                    self.current_player = 2
+                    self.message = "Player 2's Turn"
+                elif event.key == pygame.K_d:
+                    if self.current_player == 1:
+                        self.draw_tile(1)
+                        self.check_win(1)
+                    else:
+                        self.draw_tile(2)
+                        self.check_win(2)
+                elif event.key == pygame.K_x and self.selected_tile is not None:
+                    if self.current_player == 1:
+                        self.discard_tile(1, self.selected_tile)
+                    else:
+                        self.discard_tile(2, self.selected_tile)
+                    self.selected_tile = None
+                elif event.key == pygame.K_r:
+                    self.initialize_game()
+                    self.current_player = 1
+                    self.game_over = False
+                    self.winner = None
+                    self.message = "Player 1's Turn"
+                    
+        return True
+        
+    def draw(self):
+        self.screen.fill(BACKGROUND)
+        
+        # Draw player 1's hand (bottom of screen)
+        start_x = (SCREEN_WIDTH - (len(self.player1_hand) * (CARD_WIDTH + CARD_SPACING) - CARD_SPACING)) // 2
+        for i, tile in enumerate(self.player1_hand):
+            tile.draw(self.screen, start_x + i * (CARD_WIDTH + CARD_SPACING), SCREEN_HEIGHT - CARD_HEIGHT - 20)
+            
+        # Draw player 2's hand (top of screen)
+        start_x = (SCREEN_WIDTH - (len(self.player2_hand) * (CARD_WIDTH + CARD_SPACING) - CARD_SPACING)) // 2
+        for i, tile in enumerate(self.player2_hand):
+            tile.draw(self.screen, start_x + i * (CARD_WIDTH + CARD_SPACING), 20)
+            
+        # Draw discard piles
+        discard_text = self.small_font.render("Discards:", True, (255, 255, 255))
+        self.screen.blit(discard_text, (20, SCREEN_HEIGHT // 2 - 60))
+        
+        for i, tile in enumerate(self.player1_discards[-5:]):  # Show last 5 discards
+            tile.draw(self.screen, 20 + i * (CARD_WIDTH // 2 + 5), SCREEN_HEIGHT // 2 - 20)
+            
+        for i, tile in enumerate(self.player2_discards[-5:]):  # Show last 5 discards
+            tile.draw(self.screen, 20 + i * (CARD_WIDTH // 2 + 5), SCREEN_HEIGHT // 2 + 20)
+            
+        # Draw remaining tiles count
+        tiles_text = self.font.render(f"Remaining Tiles: {len(self.tiles)}", True, (255, 255, 255))
+        self.screen.blit(tiles_text, (SCREEN_WIDTH - 250, 20))
+        
+        # Draw current player indicator
+        player_text = self.font.render(self.message, True, PLAYER1_COLOR if self.current_player == 1 else PLAYER2_COLOR)
+        self.screen.blit(player_text, (SCREEN_WIDTH // 2 - player_text.get_width() // 2, SCREEN_HEIGHT // 2 - 50))
+        
+        # Draw buttons
+        self.draw_button.draw(self.screen)
+        self.discard_button.draw(self.screen)
+        
+        # Draw game over message
+        if self.game_over:
+            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 180))
+            self.screen.blit(overlay, (0, 0))
+            
+            win_font = pygame.font.SysFont(None, 72)
+            win_text = win_font.render(f"Player {self.winner} Wins!", True, (255, 215, 0))
+            self.screen.blit(win_text, (SCREEN_WIDTH // 2 - win_text.get_width() // 2, SCREEN_HEIGHT // 2 - 50))
+            
+            restart_font = pygame.font.SysFont(None, 36)
+            restart_text = restart_font.render("Press R to restart", True, (255, 255, 255))
+            self.screen.blit(restart_text, (SCREEN_WIDTH // 2 - restart_text.get_width() // 2, SCREEN_HEIGHT // 2 + 50))
+        
+        # Draw instructions
+        instructions = [
+            "Click on a tile to select it",
+            "Press 'Draw Tile' or D to draw",
+            "Press 'Discard' or X to discard selected tile",
+            "Press R to restart game",
+            "Press 1/2 to switch players (for testing)"
+        ]
+        
+        for i, instruction in enumerate(instructions):
+            text = self.small_font.render(instruction, True, (200, 200, 200))
+            self.screen.blit(text, (20, 20 + i * 25))
+        
+        pygame.display.flip()
+        
+    def run(self):
+        running = True
+        while running:
+            running = self.handle_events()
+            self.draw()
+            self.clock.tick(FPS)
+            
+        pygame.quit()
+
+if __name__ == "__main__":
+    game = VitaMohyongGame()
+    game.run()
